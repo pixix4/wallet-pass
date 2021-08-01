@@ -4,7 +4,7 @@
 //! ```no_run
 //! use std::path::Path;
 //! use wallet_pass::{
-//!     template::{Details, Field, BarcodeFormat},
+//!     template::{Details, Field, Barcode, BarcodeFormat},
 //!     Pass,
 //! };
 //!
@@ -19,7 +19,7 @@
 //! pass.serial_number("1234567890");
 //! pass.authentication_token("sda8f6ffDFS798SFDfsfSdf");
 //!
-//! pass.barcode(BarcodeFormat::PkBarcodeFormatQr, "QR Code", "iso-8859-1");
+//! pass.barcode(Barcode::new(BarcodeFormat::PkBarcodeFormatQr, "QR Code", "iso-8859-1"));
 //!
 //! let mut store_card = Details::new();
 //!
