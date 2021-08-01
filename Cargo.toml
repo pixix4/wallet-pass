@@ -10,7 +10,7 @@ categories = ["encoding", "command-line-interface"]
 
 license = "MIT"
 
-repository = "https://github.com/pixix4/ev3dev-lang-rust"
+repository = "https://github.com/pixix4/wallet-pass"
 readme = "README.md"
 
 
