@@ -5,7 +5,7 @@ edition = "2018"
 authors = ["Lars Westermann <lars-westermann@live.de>"]
 
 description = "Build and sign passes for apple wallet"
-keywords = ["apple wallet", "wallet", "signpass"]
+keywords = ["apple", "pass", "wallet", "signpass"]
 categories = ["encoding", "command-line-interface"]
 
 license = "MIT"
