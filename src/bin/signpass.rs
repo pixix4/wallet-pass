@@ -42,8 +42,9 @@ pub fn main() {
         format!("{}.pkpass", pass_name)
     };
 
-    if let Err(e) = sign::sign_to_file(
+    if let Err(e) = sign::sign_path_to_file(
         Path::new(&opts.pass_path),
+        None,
         Path::new(&opts.certificate_path),
         &opts.certificate_password,
         Path::new(&opts.wwdr_intermediate_certificate_path),

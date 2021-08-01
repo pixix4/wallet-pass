@@ -14,246 +14,243 @@ use walkdir::{DirEntry, WalkDir};
 use zip::result::ZipError;
 use zip::write::FileOptions;
 
-struct Sign {
-    pass_path: PathBuf,
-    certificate_path: PathBuf,
-    certificate_password: String,
-    wwdr_intermediate_certificate_path: PathBuf,
-    output_path: PathBuf,
-    temporary_path: PathBuf,
-    manifest_path: PathBuf,
-    signature_path: PathBuf,
-}
+use crate::template::Template;
 
-pub fn sign_to_file(
+/// Sign pass with certificates
+pub fn sign_path_to_file(
     pass_path: &Path,
+    template: Option<&Template>,
     certificate_path: &Path,
     certificate_password: &str,
     wwdr_intermediate_certificate_path: &Path,
     output_path: &Path,
     force_pass_signing: bool,
 ) -> io::Result<()> {
-    let mut sign = Sign::create(
-        pass_path,
+    if force_pass_signing {
+        force_clean_raw_pass(pass_path)?;
+    }
+
+    // Validate that requested contents are not a signed and expanded pass archive.
+    validate_directory_as_unsigned_raw_pass(pass_path)?;
+
+    // Get a temporary place to stash the pass contents
+    let temporary_path = create_temporary_directory()?;
+
+    // Make a copy of the pass contents to the temporary folder
+    copy_pass_to_temporary_location(pass_path, &temporary_path)?;
+
+    if let Some(template) = template {
+        save_pass_file(template, &temporary_path)?;
+    }
+
+    // Clean out the unneeded .DS_Store files
+    clean_ds_store_files(&temporary_path)?;
+
+    // Build the json manifest
+    let manifest_path = generate_json_manifest(&temporary_path)?;
+
+    // Sign the manifest
+    sign_manifest(
         certificate_path,
         certificate_password,
         wwdr_intermediate_certificate_path,
-        output_path,
-    );
-    sign.sign_pass(force_pass_signing)
+        &temporary_path,
+        &manifest_path,
+    )?;
+
+    // Package pass
+    compress_pass_file(&temporary_path, output_path)?;
+
+    // Clean up the temp directory
+    delete_temp_dir(&temporary_path)?;
+
+    Ok(())
 }
 
-impl Sign {
-    pub fn create(
-        pass_path: &Path,
-        certificate_path: &Path,
-        certificate_password: &str,
-        wwdr_intermediate_certificate_path: &Path,
-        output_path: &Path,
-    ) -> Self {
-        Self {
-            pass_path: pass_path.to_path_buf(),
-            certificate_path: certificate_path.to_path_buf(),
-            certificate_password: certificate_password.to_string(),
-            wwdr_intermediate_certificate_path: wwdr_intermediate_certificate_path.to_path_buf(),
-            output_path: output_path.to_path_buf(),
-            temporary_path: PathBuf::new(),
-            manifest_path: PathBuf::new(),
-            signature_path: PathBuf::new(),
-        }
+/// Validate that requested contents are not a signed and expanded pass archive.
+fn validate_directory_as_unsigned_raw_pass(pass_path: &Path) -> io::Result<()> {
+    let has_manifest_file = Path::new(pass_path).join("manifest.json").exists();
+    let has_signature_file = Path::new(pass_path).join("signature").exists();
+
+    if has_manifest_file || has_signature_file {
+        eprintln!(
+            "{:?} contains pass signing artificats that need to be removed before signing.",
+            pass_path
+        );
+        return Err(io::ErrorKind::AlreadyExists.into());
     }
 
-    pub fn sign_pass(&mut self, force_pass_signing: bool) -> io::Result<()> {
-        if force_pass_signing {
-            self.force_clean_raw_pass()?;
-        }
-
-        // Validate that requested contents are not a signed and expanded pass archive.
-        self.validate_directory_as_unsigned_raw_pass()?;
-
-        // Get a temporary place to stash the pass contents
-        self.create_temporary_directory()?;
-
-        // Make a copy of the pass contents to the temporary folder
-        self.copy_pass_to_temporary_location()?;
-
-        // Clean out the unneeded .DS_Store files
-        self.clean_ds_store_files()?;
-
-        // Build the json manifest
-        self.generate_json_manifest()?;
-
-        // Sign the manifest
-        self.sign_manifest()?;
-
-        // Package pass
-        self.compress_pass_file()?;
-
-        // Clean up the temp directory
-        self.delete_temp_dir()?;
-
-        Ok(())
-    }
-
-    fn validate_directory_as_unsigned_raw_pass(&self) -> io::Result<()> {
-        let has_manifest_file = Path::new(&self.pass_path).join("manifest.json").exists();
-        let has_signature_file = Path::new(&self.pass_path).join("signature").exists();
-
-        if has_manifest_file || has_signature_file {
-            eprintln!(
-                "{:?} contains pass signing artificats that need to be removed before signing.",
-                &self.pass_path
-            );
-            return Err(io::ErrorKind::AlreadyExists.into());
-        }
-
-        Ok(())
-    }
-
-    fn force_clean_raw_pass(&self) -> io::Result<()> {
-        let manifest_file = Path::new(&self.pass_path).join("manifest.json");
-        if manifest_file.exists() {
-            fs::remove_file(manifest_file)?;
-        }
-
-        let signature_file = Path::new(&self.pass_path).join("signature");
-        if signature_file.exists() {
-            fs::remove_file(signature_file)?;
-        }
-
-        Ok(())
-    }
-
-    fn create_temporary_directory(&mut self) -> io::Result<()> {
-        self.temporary_path = tempdir()?.into_path();
-
-        Ok(())
-    }
-
-    fn copy_pass_to_temporary_location(&self) -> io::Result<()> {
-        let mut options = CopyOptions::new();
-        options.content_only = true;
-
-        if fs_extra::dir::copy(&self.pass_path, &self.temporary_path, &options).is_err() {
-            return Err(io::ErrorKind::Other.into());
-        }
-
-        Ok(())
-    }
-
-    fn clean_ds_store_files(&self) -> io::Result<()> {
-        for entry in WalkDir::new(&self.temporary_path)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            if entry.file_name() == ".DS_Store" {
-                fs::remove_file(entry.path())?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn generate_json_manifest(&mut self) -> io::Result<()> {
-        let mut manifest = HashMap::<String, String>::new();
-
-        for entry in WalkDir::new(&self.temporary_path)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().is_file())
-        {
-            let file = File::open(entry.path())?;
-            let mut file_reader = BufReader::new(file);
-            let mut file_buffer = Vec::new();
-            file_reader.read_to_end(&mut file_buffer)?;
-
-            let digest = sha1(&file_buffer);
-
-            manifest.insert(
-                entry.file_name().to_str().unwrap().to_owned(),
-                hex::encode(digest),
-            );
-        }
-
-        self.manifest_path = self.temporary_path.clone();
-        self.manifest_path.push("manifest.json");
-
-        let mut manifest_file = File::create(&self.manifest_path)?;
-        manifest_file.write_all(&serde_json::to_string_pretty(&manifest)?.as_bytes())?;
-
-        Ok(())
-    }
-
-    fn sign_manifest(&mut self) -> io::Result<()> {
-        let pkcs12_file = fs::File::open(&self.certificate_path)?;
-        let mut pkcs12_reader = BufReader::new(pkcs12_file);
-        let mut pkcs12_buffer = Vec::new();
-        pkcs12_reader.read_to_end(&mut pkcs12_buffer)?;
-        let pkcs12_certificate =
-            openssl::pkcs12::Pkcs12::from_der(&pkcs12_buffer)?.parse(&self.certificate_password)?;
-
-        let x509_file = fs::File::open(&self.wwdr_intermediate_certificate_path)?;
-        let mut x509_reader = BufReader::new(x509_file);
-        let mut x509_buffer = Vec::new();
-        x509_reader.read_to_end(&mut x509_buffer)?;
-        let x509_certificate = openssl::x509::X509::from_pem(&x509_buffer)?;
-
-        let flags = openssl::pkcs7::Pkcs7Flags::BINARY | openssl::pkcs7::Pkcs7Flags::DETACHED;
-
-        let manifest_file = fs::File::open(&self.manifest_path)?;
-        let mut manifest_reader = BufReader::new(manifest_file);
-        let mut manifest_buffer = Vec::new();
-        manifest_reader.read_to_end(&mut manifest_buffer)?;
-
-        let mut certs = Stack::<X509>::new()?;
-        certs.push(x509_certificate)?;
-
-        let signed = openssl::pkcs7::Pkcs7::sign(
-            &pkcs12_certificate.cert,
-            &pkcs12_certificate.pkey,
-            &certs,
-            &manifest_buffer,
-            flags,
-        )?;
-
-        self.signature_path = self.temporary_path.clone();
-        self.signature_path.push("signature");
-
-        let mut signature_file = File::create(&self.signature_path)?;
-        signature_file.write_all(&signed.to_der()?)?;
-
-        Ok(())
-    }
-
-    fn compress_pass_file(&self) -> io::Result<()> {
-        let src_dir = &self.temporary_path;
-        let dst_file = &self.output_path;
-
-        if !Path::new(src_dir).is_dir() {
-            return Err(ZipError::FileNotFound.into());
-        }
-
-        let path = Path::new(dst_file);
-        let file = File::create(&path).unwrap();
-
-        let walkdir = WalkDir::new(src_dir);
-        let it = walkdir.into_iter();
-
-        zip_dir(
-            &mut it.filter_map(|e| e.ok()),
-            src_dir,
-            file,
-            zip::CompressionMethod::Deflated,
-        )?;
-
-        Ok(())
-    }
-
-    fn delete_temp_dir(&self) -> io::Result<()> {
-        fs::remove_dir_all(&self.temporary_path)
-    }
+    Ok(())
 }
 
+/// Remove `manifest.json` and `signature` if they exist
+fn force_clean_raw_pass(pass_path: &Path) -> io::Result<()> {
+    let manifest_file = Path::new(pass_path).join("manifest.json");
+    if manifest_file.exists() {
+        fs::remove_file(manifest_file)?;
+    }
+
+    let signature_file = Path::new(pass_path).join("signature");
+    if signature_file.exists() {
+        fs::remove_file(signature_file)?;
+    }
+
+    Ok(())
+}
+
+/// Get a temporary place to stash the pass contents
+fn create_temporary_directory() -> io::Result<PathBuf> {
+    Ok(tempdir()?.into_path())
+}
+
+/// Make a copy of the pass contents to the temporary folder
+fn copy_pass_to_temporary_location(pass_path: &Path, temporary_path: &Path) -> io::Result<()> {
+    let mut options = CopyOptions::new();
+    options.content_only = true;
+
+    if fs_extra::dir::copy(pass_path, temporary_path, &options).is_err() {
+        return Err(io::ErrorKind::Other.into());
+    }
+
+    Ok(())
+}
+
+/// Load given `Template` and write content to `pass.json`
+fn save_pass_file(template: &Template, temporary_path: &Path) -> io::Result<()> {
+    let mut pass_path = temporary_path.to_path_buf();
+    pass_path.push("pass.json");
+
+    let mut pass_file = File::create(&pass_path)?;
+    pass_file.write_all(&serde_json::to_vec_pretty(template)?)?;
+
+    Ok(())
+}
+
+/// Clean out the unneeded .DS_Store files
+fn clean_ds_store_files(temporary_path: &Path) -> io::Result<()> {
+    for entry in WalkDir::new(temporary_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if entry.file_name() == ".DS_Store" {
+            fs::remove_file(entry.path())?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Build the json manifest
+fn generate_json_manifest(temporary_path: &Path) -> io::Result<PathBuf> {
+    let mut manifest = HashMap::<String, String>::new();
+
+    for entry in WalkDir::new(temporary_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+    {
+        let file = File::open(entry.path())?;
+        let mut file_reader = BufReader::new(file);
+        let mut file_buffer = Vec::new();
+        file_reader.read_to_end(&mut file_buffer)?;
+
+        let digest = sha1(&file_buffer);
+
+        let name = entry
+            .path()
+            .strip_prefix(temporary_path)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        manifest.insert(name, hex::encode(digest));
+    }
+
+    let mut manifest_path = temporary_path.to_path_buf();
+    manifest_path.push("manifest.json");
+
+    let mut manifest_file = File::create(&manifest_path)?;
+    manifest_file.write_all(&serde_json::to_string_pretty(&manifest)?.as_bytes())?;
+
+    Ok(manifest_path)
+}
+
+/// Sign the manifest
+fn sign_manifest(
+    certificate_path: &Path,
+    certificate_password: &str,
+    wwdr_intermediate_certificate_path: &Path,
+    temporary_path: &Path,
+    manifest_path: &Path,
+) -> io::Result<PathBuf> {
+    let pkcs12_file = fs::File::open(certificate_path)?;
+    let mut pkcs12_reader = BufReader::new(pkcs12_file);
+    let mut pkcs12_buffer = Vec::new();
+    pkcs12_reader.read_to_end(&mut pkcs12_buffer)?;
+    let pkcs12_certificate =
+        openssl::pkcs12::Pkcs12::from_der(&pkcs12_buffer)?.parse(certificate_password)?;
+
+    let x509_file = fs::File::open(wwdr_intermediate_certificate_path)?;
+    let mut x509_reader = BufReader::new(x509_file);
+    let mut x509_buffer = Vec::new();
+    x509_reader.read_to_end(&mut x509_buffer)?;
+    let x509_certificate = openssl::x509::X509::from_pem(&x509_buffer)?;
+
+    let flags = openssl::pkcs7::Pkcs7Flags::BINARY | openssl::pkcs7::Pkcs7Flags::DETACHED;
+
+    let manifest_file = fs::File::open(manifest_path)?;
+    let mut manifest_reader = BufReader::new(manifest_file);
+    let mut manifest_buffer = Vec::new();
+    manifest_reader.read_to_end(&mut manifest_buffer)?;
+
+    let mut certs = Stack::<X509>::new()?;
+    certs.push(x509_certificate)?;
+
+    let signed = openssl::pkcs7::Pkcs7::sign(
+        &pkcs12_certificate.cert,
+        &pkcs12_certificate.pkey,
+        &certs,
+        &manifest_buffer,
+        flags,
+    )?;
+
+    let mut signature_path = temporary_path.to_path_buf();
+    signature_path.push("signature");
+
+    let mut signature_file = File::create(&signature_path)?;
+    signature_file.write_all(&signed.to_der()?)?;
+
+    Ok(signature_path)
+}
+
+/// Package pass
+fn compress_pass_file(temporary_path: &Path, output_path: &Path) -> io::Result<()> {
+    if !Path::new(temporary_path).is_dir() {
+        return Err(ZipError::FileNotFound.into());
+    }
+
+    let path = Path::new(output_path);
+    let file = File::create(&path).unwrap();
+
+    let walkdir = WalkDir::new(temporary_path);
+    let it = walkdir.into_iter();
+
+    zip_dir(
+        &mut it.filter_map(|e| e.ok()),
+        temporary_path,
+        file,
+        zip::CompressionMethod::Deflated,
+    )?;
+
+    Ok(())
+}
+
+/// Clean up the temp directory
+fn delete_temp_dir(temporary_path: &Path) -> io::Result<()> {
+    fs::remove_dir_all(temporary_path)
+}
+
+/// Utility function for `compress_pass_file`
 fn zip_dir<T>(
     it: &mut dyn Iterator<Item = DirEntry>,
     prefix: &Path,
