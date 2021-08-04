@@ -36,10 +36,10 @@
 //!
 //! // Sign, comprass and save pass
 //! pass.export_to_file(
-//!     Path::new("./StoreCard.pkpass"),
 //!     Path::new("Certificates.p12"),
 //!     "Certificates Password",
 //!     Path::new("Apple Worldwide Developer Relations Certification Authority.pem"),
+//!     Path::new("./StoreCard.pkpass"),
 //! )
 //! .unwrap();  
 //! ```

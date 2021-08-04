@@ -1,11 +1,11 @@
 use std::{
     fs::File,
-    io::{self, BufReader, Read},
+    io::{self, BufReader, Read, Seek, Write},
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
 };
 
-use crate::{sign::sign_path_to_file, template::Template};
+use crate::{sign, template::Template};
 
 /// Represents an complete pass with reference to a directory with image and resource files
 #[derive(Debug, Clone)]
@@ -42,22 +42,43 @@ impl Pass {
         }
     }
 
-    /// Sign, package and save this `Pass` to a file
-    pub fn export_to_file(
+    /// Sign, package and save this `Pass` to writer
+    pub fn export<T>(
         &self,
-        output_path: &Path,
         certificate_path: &Path,
         certificate_password: &str,
         wwdr_intermediate_certificate_path: &Path,
-    ) -> io::Result<()> {
-        sign_path_to_file(
+        writer: T,
+    ) -> io::Result<T>
+    where
+        T: Write + Seek,
+    {
+        sign::sign_path(
             &self.pass_path,
             Some(&self.template),
             certificate_path,
             certificate_password,
             wwdr_intermediate_certificate_path,
-            output_path,
+            writer,
             false,
+        )
+    }
+
+    /// Sign, package and save this `Pass` to a file
+    pub fn export_to_file(
+        &self,
+        certificate_path: &Path,
+        certificate_password: &str,
+        wwdr_intermediate_certificate_path: &Path,
+        output_path: &Path,
+    ) -> io::Result<()> {
+        let path = Path::new(output_path);
+        let file = File::create(&path).unwrap();
+        self.export(
+            certificate_path,
+            certificate_password,
+            wwdr_intermediate_certificate_path,
+            file,
         )?;
 
         Ok(())

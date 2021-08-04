@@ -17,15 +17,18 @@ use zip::write::FileOptions;
 use crate::template::Template;
 
 /// Sign pass with certificates
-pub fn sign_path_to_file(
+pub fn sign_path<T>(
     pass_path: &Path,
     template: Option<&Template>,
     certificate_path: &Path,
     certificate_password: &str,
     wwdr_intermediate_certificate_path: &Path,
-    output_path: &Path,
+    writer: T,
     force_pass_signing: bool,
-) -> io::Result<()> {
+) -> io::Result<T>
+where
+    T: Write + Seek,
+{
     if force_pass_signing {
         force_clean_raw_pass(pass_path)?;
     }
@@ -59,12 +62,12 @@ pub fn sign_path_to_file(
     )?;
 
     // Package pass
-    compress_pass_file(&temporary_path, output_path)?;
+    let writer = compress_pass(&temporary_path, writer)?;
 
     // Clean up the temp directory
     delete_temp_dir(&temporary_path)?;
 
-    Ok(())
+    Ok(writer)
 }
 
 /// Validate that requested contents are not a signed and expanded pass archive.
@@ -224,25 +227,25 @@ fn sign_manifest(
 }
 
 /// Package pass
-fn compress_pass_file(temporary_path: &Path, output_path: &Path) -> io::Result<()> {
+fn compress_pass<T>(temporary_path: &Path, writer: T) -> io::Result<T>
+where
+    T: Write + Seek,
+{
     if !Path::new(temporary_path).is_dir() {
         return Err(ZipError::FileNotFound.into());
     }
 
-    let path = Path::new(output_path);
-    let file = File::create(&path).unwrap();
-
     let walkdir = WalkDir::new(temporary_path);
     let it = walkdir.into_iter();
 
-    zip_dir(
+    let writer = zip_dir(
         &mut it.filter_map(|e| e.ok()),
         temporary_path,
-        file,
+        writer,
         zip::CompressionMethod::Deflated,
     )?;
 
-    Ok(())
+    Ok(writer)
 }
 
 /// Clean up the temp directory
@@ -256,7 +259,7 @@ fn zip_dir<T>(
     prefix: &Path,
     writer: T,
     method: zip::CompressionMethod,
-) -> zip::result::ZipResult<()>
+) -> zip::result::ZipResult<T>
 where
     T: Write + Seek,
 {
@@ -287,6 +290,6 @@ where
             zip.add_directory_from_path(name, options)?;
         }
     }
-    zip.finish()?;
-    Result::Ok(())
+    let writer = zip.finish()?;
+    Ok(writer)
 }

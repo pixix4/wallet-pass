@@ -1,5 +1,5 @@
 use clap::{AppSettings, Clap};
-use std::{ffi::OsStr, path::Path, process::exit};
+use std::{ffi::OsStr, fs::File, path::Path, process::exit};
 
 use wallet_pass::sign;
 
@@ -42,13 +42,15 @@ pub fn main() {
         format!("{}.pkpass", pass_name)
     };
 
-    if let Err(e) = sign::sign_path_to_file(
+    let path = Path::new(&output_path);
+    let file = File::create(&path).unwrap();
+    if let Err(e) = sign::sign_path(
         Path::new(&opts.pass_path),
         None,
         Path::new(&opts.certificate_path),
         &opts.certificate_password,
         Path::new(&opts.wwdr_intermediate_certificate_path),
-        Path::new(&output_path),
+        file,
         opts.force_pass_signing,
     ) {
         eprintln!("{:?}", e);
