@@ -7,7 +7,7 @@ Build and sign passes for apple wallet
 ## Sign an exisiting pass
 
 ```bash
-cargo build --release --bin signpass
+cargo build --release --features cli --bin signpass
 
 ./target/release/signpass --help
 ```
@@ -48,7 +48,7 @@ fn main() {
 
     pass.store_card(store_card);
 
-    // Sign, comprass and save pass 
+    // Sign, comprass and save pass
     pass.export_to_file(
         Path::new("Certificates.p12"),
         "Certificates Password",

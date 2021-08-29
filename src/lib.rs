@@ -41,8 +41,12 @@
 //!     Path::new("Apple Worldwide Developer Relations Certification Authority.pem"),
 //!     Path::new("./StoreCard.pkpass"),
 //! )
-//! .unwrap();  
+//! .unwrap();
 //! ```
+
+#[cfg(feature = "cli")]
+#[macro_use]
+extern crate clap;
 
 mod pass;
 pub use pass::Pass;

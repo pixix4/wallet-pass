@@ -1,3 +1,5 @@
+#![cfg(feature = "cli")]
+
 use clap::{AppSettings, Clap};
 use std::{ffi::OsStr, fs::File, path::Path, process::exit};
 
