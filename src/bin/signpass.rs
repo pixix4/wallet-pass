@@ -1,14 +1,13 @@
 #![cfg(feature = "cli")]
 
-use clap::{AppSettings, Clap};
+use clap::Parser;
 use std::{ffi::OsStr, fs::File, path::Path, process::exit};
 
 use wallet_pass::sign;
 
 /// Sign an apple wallet pass with a given certificate
-#[derive(Clap, Debug)]
+#[derive(Debug, Parser)]
 #[clap(version = "1.0", author = "Lars Westermann <git@lars-westermann.de>")]
-#[clap(setting = AppSettings::ColoredHelp)]
 struct Opts {
     /// Path to the pass directory
     #[clap(short = 'p', long = "pass")]

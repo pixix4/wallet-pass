@@ -173,7 +173,7 @@ fn generate_json_manifest(temporary_path: &Path) -> io::Result<PathBuf> {
     manifest_path.push("manifest.json");
 
     let mut manifest_file = File::create(&manifest_path)?;
-    manifest_file.write_all(&serde_json::to_string_pretty(&manifest)?.as_bytes())?;
+    manifest_file.write_all(serde_json::to_string_pretty(&manifest)?.as_bytes())?;
 
     Ok(manifest_path)
 }
