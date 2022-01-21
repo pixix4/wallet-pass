@@ -1,7 +1,10 @@
 #![cfg(feature = "cli")]
 
 use clap::Parser;
-use std::{ffi::OsStr, fs::File, path::Path, process::exit};
+use std::ffi::OsStr;
+use std::fs::File;
+use std::path::Path;
+use std::process::exit;
 
 use wallet_pass::sign;
 
@@ -46,11 +49,11 @@ pub fn main() {
     let path = Path::new(&output_path);
     let file = File::create(&path).unwrap();
     if let Err(e) = sign::sign_path(
-        Path::new(&opts.pass_path),
+        &opts.pass_path,
         None,
-        Path::new(&opts.certificate_path),
+        &opts.certificate_path,
         &opts.certificate_password,
-        Path::new(&opts.wwdr_intermediate_certificate_path),
+        &opts.wwdr_intermediate_certificate_path,
         file,
         opts.force_pass_signing,
     ) {

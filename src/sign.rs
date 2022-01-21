@@ -4,7 +4,8 @@ use openssl::stack::Stack;
 use openssl::x509::X509;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{prelude::*, BufReader};
+use std::io::prelude::*;
+use std::io::BufReader;
 use std::io::{Seek, Write};
 use std::iter::Iterator;
 use std::path::{Path, PathBuf};
@@ -17,12 +18,12 @@ use zip::write::FileOptions;
 use crate::template::Template;
 
 /// Sign pass with certificates
-pub fn sign_path<T>(
-    pass_path: &Path,
+pub fn sign_path<T, P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
+    pass_path: P1,
     template: Option<&Template>,
-    certificate_path: &Path,
+    certificate_path: P2,
     certificate_password: &str,
-    wwdr_intermediate_certificate_path: &Path,
+    wwdr_intermediate_certificate_path: P3,
     writer: T,
     force_pass_signing: bool,
 ) -> io::Result<T>
@@ -30,17 +31,17 @@ where
     T: Write + Seek,
 {
     if force_pass_signing {
-        force_clean_raw_pass(pass_path)?;
+        force_clean_raw_pass(&pass_path)?;
     }
 
     // Validate that requested contents are not a signed and expanded pass archive.
-    validate_directory_as_unsigned_raw_pass(pass_path)?;
+    validate_directory_as_unsigned_raw_pass(&pass_path)?;
 
     // Get a temporary place to stash the pass contents
     let temporary_path = create_temporary_directory()?;
 
     // Make a copy of the pass contents to the temporary folder
-    copy_pass_to_temporary_location(pass_path, &temporary_path)?;
+    copy_pass_to_temporary_location(&pass_path, &temporary_path)?;
 
     if let Some(template) = template {
         save_pass_file(template, &temporary_path)?;
@@ -71,14 +72,14 @@ where
 }
 
 /// Validate that requested contents are not a signed and expanded pass archive.
-fn validate_directory_as_unsigned_raw_pass(pass_path: &Path) -> io::Result<()> {
-    let has_manifest_file = Path::new(pass_path).join("manifest.json").exists();
-    let has_signature_file = Path::new(pass_path).join("signature").exists();
+fn validate_directory_as_unsigned_raw_pass<P: AsRef<Path>>(pass_path: P) -> io::Result<()> {
+    let has_manifest_file = pass_path.as_ref().join("manifest.json").exists();
+    let has_signature_file = pass_path.as_ref().join("signature").exists();
 
     if has_manifest_file || has_signature_file {
         eprintln!(
             "{:?} contains pass signing artificats that need to be removed before signing.",
-            pass_path
+            pass_path.as_ref()
         );
         return Err(io::ErrorKind::AlreadyExists.into());
     }
@@ -87,13 +88,13 @@ fn validate_directory_as_unsigned_raw_pass(pass_path: &Path) -> io::Result<()> {
 }
 
 /// Remove `manifest.json` and `signature` if they exist
-fn force_clean_raw_pass(pass_path: &Path) -> io::Result<()> {
-    let manifest_file = Path::new(pass_path).join("manifest.json");
+fn force_clean_raw_pass<P: AsRef<Path>>(pass_path: P) -> io::Result<()> {
+    let manifest_file = pass_path.as_ref().join("manifest.json");
     if manifest_file.exists() {
         fs::remove_file(manifest_file)?;
     }
 
-    let signature_file = Path::new(pass_path).join("signature");
+    let signature_file = pass_path.as_ref().join("signature");
     if signature_file.exists() {
         fs::remove_file(signature_file)?;
     }
@@ -107,7 +108,10 @@ fn create_temporary_directory() -> io::Result<PathBuf> {
 }
 
 /// Make a copy of the pass contents to the temporary folder
-fn copy_pass_to_temporary_location(pass_path: &Path, temporary_path: &Path) -> io::Result<()> {
+fn copy_pass_to_temporary_location<P1: AsRef<Path>, P2: AsRef<Path>>(
+    pass_path: P1,
+    temporary_path: P2,
+) -> io::Result<()> {
     let mut options = CopyOptions::new();
     options.content_only = true;
 
@@ -119,9 +123,8 @@ fn copy_pass_to_temporary_location(pass_path: &Path, temporary_path: &Path) -> i
 }
 
 /// Load given `Template` and write content to `pass.json`
-fn save_pass_file(template: &Template, temporary_path: &Path) -> io::Result<()> {
-    let mut pass_path = temporary_path.to_path_buf();
-    pass_path.push("pass.json");
+fn save_pass_file<P: AsRef<Path>>(template: &Template, temporary_path: P) -> io::Result<()> {
+    let pass_path = temporary_path.as_ref().join("pass.json");
 
     let mut pass_file = File::create(&pass_path)?;
     pass_file.write_all(&serde_json::to_vec_pretty(template)?)?;
@@ -130,7 +133,7 @@ fn save_pass_file(template: &Template, temporary_path: &Path) -> io::Result<()> 
 }
 
 /// Clean out the unneeded .DS_Store files
-fn clean_ds_store_files(temporary_path: &Path) -> io::Result<()> {
+fn clean_ds_store_files<P: AsRef<Path>>(temporary_path: P) -> io::Result<()> {
     for entry in WalkDir::new(temporary_path)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -144,10 +147,10 @@ fn clean_ds_store_files(temporary_path: &Path) -> io::Result<()> {
 }
 
 /// Build the json manifest
-fn generate_json_manifest(temporary_path: &Path) -> io::Result<PathBuf> {
+fn generate_json_manifest<P: AsRef<Path>>(temporary_path: P) -> io::Result<PathBuf> {
     let mut manifest = HashMap::<String, String>::new();
 
-    for entry in WalkDir::new(temporary_path)
+    for entry in WalkDir::new(&temporary_path)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_file())
@@ -161,16 +164,20 @@ fn generate_json_manifest(temporary_path: &Path) -> io::Result<PathBuf> {
 
         let name = entry
             .path()
-            .strip_prefix(temporary_path)
-            .unwrap()
+            .strip_prefix(&temporary_path)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
             .to_str()
-            .unwrap()
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::Other,
+                    "Could not convert path to string!".to_string(),
+                )
+            })?
             .to_owned();
         manifest.insert(name, hex::encode(digest));
     }
 
-    let mut manifest_path = temporary_path.to_path_buf();
-    manifest_path.push("manifest.json");
+    let manifest_path = temporary_path.as_ref().join("manifest.json");
 
     let mut manifest_file = File::create(&manifest_path)?;
     manifest_file.write_all(serde_json::to_string_pretty(&manifest)?.as_bytes())?;
@@ -179,12 +186,12 @@ fn generate_json_manifest(temporary_path: &Path) -> io::Result<PathBuf> {
 }
 
 /// Sign the manifest
-fn sign_manifest(
-    certificate_path: &Path,
+fn sign_manifest<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>, P4: AsRef<Path>>(
+    certificate_path: P1,
     certificate_password: &str,
-    wwdr_intermediate_certificate_path: &Path,
-    temporary_path: &Path,
-    manifest_path: &Path,
+    wwdr_intermediate_certificate_path: P2,
+    temporary_path: P3,
+    manifest_path: P4,
 ) -> io::Result<PathBuf> {
     let pkcs12_file = fs::File::open(certificate_path)?;
     let mut pkcs12_reader = BufReader::new(pkcs12_file);
@@ -217,8 +224,7 @@ fn sign_manifest(
         flags,
     )?;
 
-    let mut signature_path = temporary_path.to_path_buf();
-    signature_path.push("signature");
+    let signature_path = temporary_path.as_ref().join("signature");
 
     let mut signature_file = File::create(&signature_path)?;
     signature_file.write_all(&signed.to_der()?)?;
@@ -227,20 +233,20 @@ fn sign_manifest(
 }
 
 /// Package pass
-fn compress_pass<T>(temporary_path: &Path, writer: T) -> io::Result<T>
+fn compress_pass<T, P: AsRef<Path>>(temporary_path: P, writer: T) -> io::Result<T>
 where
     T: Write + Seek,
 {
-    if !Path::new(temporary_path).is_dir() {
+    if !temporary_path.as_ref().is_dir() {
         return Err(ZipError::FileNotFound.into());
     }
 
-    let walkdir = WalkDir::new(temporary_path);
+    let walkdir = WalkDir::new(&temporary_path);
     let it = walkdir.into_iter();
 
     let writer = zip_dir(
         &mut it.filter_map(|e| e.ok()),
-        temporary_path,
+        &temporary_path,
         writer,
         zip::CompressionMethod::Deflated,
     )?;
@@ -249,14 +255,14 @@ where
 }
 
 /// Clean up the temp directory
-fn delete_temp_dir(temporary_path: &Path) -> io::Result<()> {
+fn delete_temp_dir<P: AsRef<Path>>(temporary_path: P) -> io::Result<()> {
     fs::remove_dir_all(temporary_path)
 }
 
 /// Utility function for `compress_pass_file`
-fn zip_dir<T>(
+fn zip_dir<T, P: AsRef<Path>>(
     it: &mut dyn Iterator<Item = DirEntry>,
-    prefix: &Path,
+    prefix: P,
     writer: T,
     method: zip::CompressionMethod,
 ) -> zip::result::ZipResult<T>
@@ -271,7 +277,9 @@ where
     let mut buffer = Vec::new();
     for entry in it {
         let path = entry.path();
-        let name = path.strip_prefix(prefix).unwrap();
+        let name = path
+            .strip_prefix(&prefix)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
         // Write file or directory explicitly
         // Some unzip tools unzip files with directory paths correctly, some do not!
