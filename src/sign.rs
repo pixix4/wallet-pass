@@ -198,7 +198,7 @@ fn sign_manifest<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>, P4: AsRef<Pa
     let mut pkcs12_buffer = Vec::new();
     pkcs12_reader.read_to_end(&mut pkcs12_buffer)?;
     let pkcs12_certificate =
-        openssl::pkcs12::Pkcs12::from_der(&pkcs12_buffer)?.parse(certificate_password)?;
+        openssl::pkcs12::Pkcs12::from_der(&pkcs12_buffer)?.parse2(certificate_password)?;
 
     let x509_file = fs::File::open(wwdr_intermediate_certificate_path)?;
     let mut x509_reader = BufReader::new(x509_file);
@@ -217,8 +217,8 @@ fn sign_manifest<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>, P4: AsRef<Pa
     certs.push(x509_certificate)?;
 
     let signed = openssl::pkcs7::Pkcs7::sign(
-        &pkcs12_certificate.cert,
-        &pkcs12_certificate.pkey,
+        &pkcs12_certificate.cert.as_ref().unwrap(),
+        &pkcs12_certificate.pkey.as_ref().unwrap(),
         &certs,
         &manifest_buffer,
         flags,
