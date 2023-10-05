@@ -19,7 +19,7 @@ impl Pass {
     pub fn from_path<P: AsRef<Path>>(pass_path: P) -> io::Result<Self> {
         let path_buf = pass_path.as_ref().join("pass.json");
 
-        let file = File::open(&path_buf)?;
+        let file = File::open(path_buf)?;
         let mut file_reader = BufReader::new(file);
         let mut file_buffer = Vec::new();
         file_reader.read_to_end(&mut file_buffer)?;

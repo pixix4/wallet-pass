@@ -59,7 +59,7 @@ where
         certificate_password,
         wwdr_intermediate_certificate_path,
         &temporary_path,
-        &manifest_path,
+        manifest_path,
     )?;
 
     // Package pass
@@ -126,7 +126,7 @@ fn copy_pass_to_temporary_location<P1: AsRef<Path>, P2: AsRef<Path>>(
 fn save_pass_file<P: AsRef<Path>>(template: &Template, temporary_path: P) -> io::Result<()> {
     let pass_path = temporary_path.as_ref().join("pass.json");
 
-    let mut pass_file = File::create(&pass_path)?;
+    let mut pass_file = File::create(pass_path)?;
     pass_file.write_all(&serde_json::to_vec_pretty(template)?)?;
 
     Ok(())
@@ -217,8 +217,8 @@ fn sign_manifest<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>, P4: AsRef<Pa
     certs.push(x509_certificate)?;
 
     let signed = openssl::pkcs7::Pkcs7::sign(
-        &pkcs12_certificate.cert.as_ref().unwrap(),
-        &pkcs12_certificate.pkey.as_ref().unwrap(),
+        pkcs12_certificate.cert.as_ref().unwrap(),
+        pkcs12_certificate.pkey.as_ref().unwrap(),
         &certs,
         &manifest_buffer,
         flags,
@@ -289,7 +289,7 @@ where
             let mut f = File::open(path)?;
 
             f.read_to_end(&mut buffer)?;
-            zip.write_all(&*buffer)?;
+            zip.write_all(&buffer)?;
             buffer.clear();
         } else if !name.as_os_str().is_empty() {
             // Only if not root! Avoids path spec / warning
