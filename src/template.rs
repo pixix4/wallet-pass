@@ -717,6 +717,11 @@ pub struct Field {
     /// Value of the field
     #[serde(rename = "value")]
     pub value: ValueUnion,
+
+    /// Row for auxiliary fields. Set to 1 to add an extra row for auxiliary fields.
+    #[serde(rename = "row")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row: Option<i32>,
 }
 
 impl Field {
@@ -737,6 +742,7 @@ impl Field {
             text_alignment: None,
             time_style: None,
             value: ValueUnion::String(value.into()),
+            row: None,
         }
     }
 
@@ -757,6 +763,7 @@ impl Field {
             text_alignment: None,
             time_style: None,
             value: ValueUnion::Double(value),
+            row: None,
         }
     }
 
@@ -850,6 +857,11 @@ impl Field {
     /// Style of time to display.
     pub fn time_style(&mut self, time_style: EStyle) {
         self.time_style = Some(time_style);
+    }
+
+    /// Add row information for auxiliary fields
+    pub fn row(&mut self, row: i32) {
+        self.row = Some(row);
     }
 }
 
